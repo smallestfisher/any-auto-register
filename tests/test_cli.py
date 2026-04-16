@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from application.accounts import AccountsService
+from application.config import ConfigService
 from application.tasks import create_task
 from cli import _build_register_payload, main
 from domain.accounts import AccountCreateCommand
@@ -179,6 +180,64 @@ def test_main_providers_save_and_list_json(capsys):
     target = next(item for item in items if item["provider_key"] == "moemail")
     assert target["display_name"] == "My MoeMail"
     assert target["is_default"] is True
+
+
+def test_main_providers_save_with_field_kv(capsys):
+    exit_code = main([
+        "providers", "save", "mailbox", "cfworker",
+        "--display-name", "My CFWorker",
+        "--set", "cfworker_api_url=https://apimail.example.com",
+        "--set", "cfworker_admin_token=secret-token",
+        "--set", "cfworker_domain=example.com",
+        "--set", "cfworker_fingerprint=finger-123",
+        "--default",
+        "--json",
+    ])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    saved = json.loads(captured.out)
+    item = saved["item"]
+    assert item["provider_key"] == "cfworker"
+    assert item["config"]["cfworker_api_url"] == "https://apimail.example.com"
+    assert item["config"]["cfworker_domain"] == "example.com"
+    assert item["auth"]["cfworker_admin_token"] == "secret-token"
+    assert item["auth"]["cfworker_fingerprint"] == "finger-123"
+
+
+def test_main_provider_drivers_support_sms_and_proxy(capsys):
+    exit_code = main(["providers", "drivers", "sms", "--json"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    sms_items = json.loads(captured.out)
+    assert any(item["provider_key"] == "sms_activate" for item in sms_items)
+
+    exit_code = main(["providers", "drivers", "proxy", "--json"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    proxy_items = json.loads(captured.out)
+    assert any(item["provider_key"] == "api_extract" for item in proxy_items)
+
+
+def test_main_config_set_supports_runtime_keys(capsys):
+    for key, value in [
+        ("cpa_api_url", "https://cpa.example.com"),
+        ("any2api_url", "https://any2api.example.com"),
+        ("any2api_password", "secret-password"),
+        ("sms_activate_api_key", "sms-key"),
+        ("proxy_api_url", "https://proxy.example.com/get"),
+    ]:
+        exit_code = main(["config", "set", key, value, "--json"])
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        result = json.loads(captured.out)
+        assert result["ok"] is True
+
+    data = ConfigService().get_config()
+    assert data["cpa_api_url"] == "https://cpa.example.com"
+    assert data["any2api_url"] == "https://any2api.example.com"
+    assert data["any2api_password"] == "secret-password"
+    assert data["sms_activate_api_key"] == "sms-key"
+    assert data["proxy_api_url"] == "https://proxy.example.com/get"
 
 
 def test_main_lifecycle_status_json(capsys):

@@ -1,6 +1,10 @@
 import os
 from contextlib import asynccontextmanager
 
+from core.env import load_project_env
+
+load_project_env()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

@@ -24,7 +24,7 @@ class ProviderDefinitionsRepository:
                 for item in session.exec(select(ProviderDefinitionModel)).all()
             }
             changed = False
-            for provider_type in ("mailbox", "captcha"):
+            for provider_type in ("mailbox", "captcha", "sms", "proxy"):
                 for template in list_builtin_provider_definitions(provider_type):
                     provider_key = str(template.get("provider_key") or "").strip()
                     driver_type = str(template.get("driver_type") or "").strip()

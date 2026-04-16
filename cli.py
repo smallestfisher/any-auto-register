@@ -9,12 +9,17 @@ import time
 from pathlib import Path
 from typing import Any
 
+from core.env import load_project_env
+
+load_project_env()
+
 from application.account_exports import AccountExportsService
 from application.account_checks import AccountChecksService
 from application.accounts import AccountsService
 from application.config import ConfigService
 from application.provider_definitions import ProviderDefinitionsService
 from application.provider_settings import ProviderSettingsService
+from infrastructure.provider_definitions_repository import ProviderDefinitionsRepository
 from application.platforms import PlatformsService
 from application.task_commands import TaskCommandsService
 from application.tasks import TERMINAL_TASK_STATUSES
@@ -43,6 +48,9 @@ REGISTER_EXTRA_ENV_MAP = {
     "chrome_cdp_url": "CHROME_CDP_URL",
     "mail_provider": "MAIL_PROVIDER",
 }
+
+
+PROVIDER_TYPES = ["mailbox", "captcha", "sms", "proxy"]
 
 
 def _env_name(name: str) -> str:
@@ -182,6 +190,34 @@ def _parse_json_object(raw: str | None) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("JSON 参数必须是对象")
     return value
+
+
+def _merge_dict_items(base: dict[str, Any], items: list[str] | None) -> dict[str, Any]:
+    merged = dict(base)
+    merged.update(_parse_kv_pairs(items or []))
+    return merged
+
+
+def _provider_field_map(provider_type: str, provider_key: str) -> dict[str, dict[str, Any]]:
+    definition = ProviderDefinitionsRepository().get_by_key(provider_type, provider_key)
+    if not definition:
+        return {}
+    return {
+        str(field.get("key") or "").strip(): dict(field or {})
+        for field in definition.get_fields()
+        if str(field.get("key") or "").strip()
+    }
+
+
+def _split_provider_payload(provider_type: str, provider_key: str, values: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    field_map = _provider_field_map(provider_type, provider_key)
+    auth: dict[str, Any] = {}
+    config: dict[str, Any] = {}
+    for key, value in values.items():
+        field = field_map.get(key, {})
+        target = auth if field.get("category") == "auth" or field.get("secret") else config
+        target[key] = value
+    return config, auth
 
 
 def _write_export_artifact(artifact, output: str | None) -> Path:
@@ -438,19 +474,23 @@ def cmd_provider_settings_list(args: argparse.Namespace) -> int:
 
 def cmd_provider_settings_save(args: argparse.Namespace) -> int:
     initialize_core(announce=not args.json)
-    payload = {
-        "id": args.id,
-        "provider_type": args.provider_type,
-        "provider_key": args.provider_key,
-        "display_name": args.display_name or "",
-        "auth_mode": args.auth_mode or "",
-        "enabled": not args.disable,
-        "is_default": bool(args.default),
-        "config": _parse_json_object(args.config),
-        "auth": _parse_json_object(args.auth),
-        "metadata": _parse_json_object(args.metadata),
-    }
     try:
+        raw_config = _merge_dict_items(_parse_json_object(args.config), args.set_config)
+        raw_auth = _merge_dict_items(_parse_json_object(args.auth), args.set_auth)
+        merged_values = _parse_kv_pairs(args.set or [])
+        inferred_config, inferred_auth = _split_provider_payload(args.provider_type, args.provider_key, merged_values)
+        payload = {
+            "id": args.id,
+            "provider_type": args.provider_type,
+            "provider_key": args.provider_key,
+            "display_name": args.display_name or "",
+            "auth_mode": args.auth_mode or "",
+            "enabled": not args.disable,
+            "is_default": bool(args.default),
+            "config": {**raw_config, **inferred_config},
+            "auth": {**raw_auth, **inferred_auth},
+            "metadata": _merge_dict_items(_parse_json_object(args.metadata), args.set_metadata),
+        }
         result = ProviderSettingsService().save_setting(payload)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -655,20 +695,20 @@ def build_parser() -> argparse.ArgumentParser:
     providers_sub = providers_parser.add_subparsers(dest="providers_command")
     providers_sub.required = True
     provider_defs = providers_sub.add_parser("definitions", help="列出 provider definitions")
-    provider_defs.add_argument("provider_type", choices=["mailbox", "captcha"])
+    provider_defs.add_argument("provider_type", choices=PROVIDER_TYPES)
     provider_defs.add_argument("--enabled-only", action="store_true")
     provider_defs.add_argument("--json", action="store_true", help="输出 JSON")
     provider_defs.set_defaults(func=cmd_provider_definitions_list)
     provider_drivers = providers_sub.add_parser("drivers", help="列出 provider driver 模板")
-    provider_drivers.add_argument("provider_type", choices=["mailbox", "captcha"])
+    provider_drivers.add_argument("provider_type", choices=PROVIDER_TYPES)
     provider_drivers.add_argument("--json", action="store_true", help="输出 JSON")
     provider_drivers.set_defaults(func=cmd_provider_drivers_list)
     provider_settings = providers_sub.add_parser("settings", help="列出 provider settings")
-    provider_settings.add_argument("provider_type", choices=["mailbox", "captcha"])
+    provider_settings.add_argument("provider_type", choices=PROVIDER_TYPES)
     provider_settings.add_argument("--json", action="store_true", help="输出 JSON")
     provider_settings.set_defaults(func=cmd_provider_settings_list)
     provider_save = providers_sub.add_parser("save", help="保存 provider setting")
-    provider_save.add_argument("provider_type", choices=["mailbox", "captcha"])
+    provider_save.add_argument("provider_type", choices=PROVIDER_TYPES)
     provider_save.add_argument("provider_key")
     provider_save.add_argument("--id", type=int)
     provider_save.add_argument("--display-name")
@@ -676,6 +716,10 @@ def build_parser() -> argparse.ArgumentParser:
     provider_save.add_argument("--config")
     provider_save.add_argument("--auth")
     provider_save.add_argument("--metadata")
+    provider_save.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="按字段写入 provider 配置，自动按模板拆分到 config/auth")
+    provider_save.add_argument("--set-config", action="append", default=[], metavar="KEY=VALUE", help="直接写入 provider config，可重复")
+    provider_save.add_argument("--set-auth", action="append", default=[], metavar="KEY=VALUE", help="直接写入 provider auth，可重复")
+    provider_save.add_argument("--set-metadata", action="append", default=[], metavar="KEY=VALUE", help="直接写入 provider metadata，可重复")
     provider_save.add_argument("--default", action="store_true")
     provider_save.add_argument("--disable", action="store_true")
     provider_save.add_argument("--json", action="store_true", help="输出 JSON")
