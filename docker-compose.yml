@@ -2,13 +2,11 @@ services:
   app:
     build: .
     ports:
-      - "8000:8000"   # FastAPI / Web UI
+      - "8000:8000"   # FastAPI API
       - "6080:6080"   # noVNC (headed 浏览器预览)
     environment:
       - DISPLAY=:99
       - ACCOUNT_MANAGER_DATABASE_URL=sqlite:////app/data/account_manager.db
-      # 可选：设置 VNC 密码，不设置则无密码
-      # - VNC_PASSWORD=changeme
     volumes:
-      - ./data:/app/data   # 持久化 SQLite 数据库
+      - ./data:/app/data
     restart: unless-stopped

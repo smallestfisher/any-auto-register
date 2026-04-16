@@ -3,8 +3,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from api.account_checks import router as account_checks_router
 from api.accounts import router as accounts_router
@@ -31,7 +29,7 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="Account Manager", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Account Manager API", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -58,16 +56,17 @@ app.include_router(task_logs_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
 
 
-_static_dir = os.path.join(os.path.dirname(__file__), "static")
-if os.path.isdir(_static_dir):
-    app.mount("/assets", StaticFiles(directory=os.path.join(_static_dir, "assets")), name="assets")
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    def spa_fallback(full_path: str):
-        return FileResponse(os.path.join(_static_dir, "index.html"))
+@app.get("/")
+def root():
+    return {
+        "name": "Account Manager API",
+        "mode": "cli_only",
+        "docs": "/docs",
+        "api_prefix": "/api",
+    }
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=False)
