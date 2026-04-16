@@ -22,34 +22,13 @@ from api.system import router as system_router
 from api.task_commands import router as task_commands_router
 from api.task_logs import router as task_logs_router
 from api.tasks import router as tasks_router
-from core.db import init_db
-from core.registry import load_all
+from bootstrap import RuntimeManager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    load_all()
-    print("[OK] 数据库初始化完成")
-    from core.registry import list_platforms
-    print(f"[OK] 已加载平台: {[p['name'] for p in list_platforms()]}")
-    from core.scheduler import scheduler
-    scheduler.start()
-    from services.task_runtime import task_runtime
-    task_runtime.start()
-    from services.solver_manager import start_async
-    start_async()
-    from core.lifecycle import lifecycle_manager
-    lifecycle_manager.start()
-    yield
-    from core.lifecycle import lifecycle_manager as _lifecycle_manager
-    _lifecycle_manager.stop()
-    from core.scheduler import scheduler as _scheduler
-    _scheduler.stop()
-    from services.task_runtime import task_runtime as _task_runtime
-    _task_runtime.stop()
-    from services.solver_manager import stop
-    stop()
+    with RuntimeManager(start_background_services=True):
+        yield
 
 
 app = FastAPI(title="Account Manager", version="2.0.0", lifespan=lifespan)

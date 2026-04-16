@@ -117,6 +117,108 @@ python3 -m camoufox fetch
 - 前后端接口文档见 [docs/frontend-api-contract.md](docs/frontend-api-contract.md)
 - 新的 C 端 / 管理端独立 API 项目见 [customer_portal_api/README.md](customer_portal_api/README.md)
 
+### CLI 使用
+
+项目现在同时支持 Web UI 和 CLI。CLI 入口为 `cli.py`，默认复用同一套数据库、平台注册表和后台运行时。
+
+常用命令：
+
+```bash
+# 查看平台
+python3 cli.py platforms list
+
+# 常驻启动本地任务运行时
+python3 cli.py serve
+
+# 查看任务
+python3 cli.py tasks list
+
+# 跟踪任务日志
+python3 cli.py tasks logs <task_id> -f
+
+# 查看账号
+python3 cli.py accounts list
+
+# 导出账号
+python3 cli.py accounts export --format csv --platform chatgpt --select-all
+
+# 查看配置
+python3 cli.py config get
+
+# 查看 provider 配置
+python3 cli.py providers settings mailbox
+```
+
+注册任务支持通过环境变量传参，命令行参数会覆盖环境变量。推荐把敏感值放在环境变量里，避免进入 shell 历史。
+
+基础环境变量：
+
+- `AAR_PLATFORM`
+- `AAR_EMAIL`
+- `AAR_PASSWORD`
+- `AAR_COUNT`
+- `AAR_CONCURRENCY`
+- `AAR_PROXY`
+- `AAR_EXECUTOR_TYPE`
+- `AAR_CAPTCHA_SOLVER`
+- `AAR_IDENTITY_PROVIDER`
+- `AAR_OAUTH_PROVIDER`
+- `AAR_OAUTH_EMAIL_HINT`
+- `AAR_CHROME_USER_DATA_DIR`
+- `AAR_CHROME_CDP_URL`
+- `AAR_MAIL_PROVIDER`
+
+额外字段可通过 `AAR_EXTRA_*` 传入，例如：
+
+```bash
+export AAR_EXTRA_FOO=bar
+```
+
+会映射到注册任务的 `extra.foo = "bar"`。
+
+示例：
+
+```bash
+export AAR_PLATFORM=chatgpt
+export AAR_COUNT=1
+export AAR_EXECUTOR_TYPE=protocol
+export AAR_IDENTITY_PROVIDER=mailbox
+export AAR_MAIL_PROVIDER=moemail
+
+python3 cli.py register create
+```
+
+如果希望当前 CLI 进程自己拉起运行时并等待任务结束：
+
+```bash
+python3 cli.py register create --wait
+```
+
+说明：
+
+- `register create` 只负责创建任务，不带 `--wait` 时需要已有 Web 服务或 `python3 cli.py serve` 在后台运行
+- `--json` 模式只输出 JSON，适合脚本调用
+- 某些平台在 `headed` 或 OAuth 流程下仍可能拉起浏览器，这一点 CLI 不会改变底层执行要求
+- 推荐使用统一启动脚本：`./scripts/start.sh web`、`./scripts/start.sh serve`、`./scripts/start.sh cli <subcommand...>`
+
+如果 ChatGPT 的 OAuth 登录过程中命中手机号验证页，CLI 现在支持通过 SMS-Activate 自动完成手机号和短信验证码输入。需要在任务 `extra` 或环境变量中提供：
+
+- `sms_activate_api_key`
+- `sms_activate_country`，例如 `us`、`ru`
+
+用环境变量传参时可以写成：
+
+```bash
+export AAR_PLATFORM=chatgpt
+export AAR_IDENTITY_PROVIDER=oauth_browser
+export AAR_OAUTH_PROVIDER=google
+export AAR_EMAIL=your_oauth_email@example.com
+export AAR_EXTRA_SMS_ACTIVATE_API_KEY=your_sms_activate_key
+export AAR_EXTRA_SMS_ACTIVATE_COUNTRY=us
+
+./scripts/start.sh cli register create --wait
+```
+
 ### 开发模式（前端热更新）
 
 ```bash

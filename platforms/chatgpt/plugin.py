@@ -66,6 +66,7 @@ class ChatGPTPlatform(BasePlatform):
             headless=(ctx.executor_type == "headless"),
             chrome_user_data_dir=ctx.identity.chrome_user_data_dir,
             chrome_cdp_url=ctx.identity.chrome_cdp_url,
+            extra=ctx.extra,
         )
 
     def build_browser_registration_adapter(self):
